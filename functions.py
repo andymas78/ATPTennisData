@@ -11,10 +11,16 @@ import numpy as np
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 import concurrent.futures
-
+import time
 
 def html_parse_tree(url):
-    page = requests.get(url)
+    try:
+        page = requests.get(url)
+    except:
+        time.sleep(5)
+        print("Sleeping...")
+        page = requests.get(url)
+        
     tree = html.fromstring(page.content)
     return tree
 
@@ -61,7 +67,7 @@ def fraction_stats(string):
     string = string.replace(')', '')
     return string.split('/')
 
-def tournaments(year):
+def getTournaments(year):
     # Setup
     year_url = "http://www.atpworldtour.com/en/scores/results-archive?year=" + year
     url_prefix = "http://www.atpworldtour.com"
@@ -149,14 +155,15 @@ def tournaments(year):
     # Output data
     return output
 
-def matches(base_url, match_url, tourney_id):
+def getMatches(base_url, match_url, tourney_id):
     tourney_url = base_url + match_url
     
     # HTML tree
     tourney_tree = html_parse_tree(tourney_url)
 
-    good_html = etree.tostring(tourney_tree, pretty_print=True).strip()
-    your_tree = etree.fromstring(good_html)
+    good_html = etree.tostring(tourney_tree, encoding="unicode", pretty_print=True).strip()
+
+    your_tree = etree.fromstring(good_html.replace("v-bind:",""))
     matches_xpath = XPath("//table[contains(@class, 'day-table')]//tbody/tr") 
     
     player1_url_xpath = XPath("td[contains(@class, 'day-table-name')][1]/a/@href")
@@ -168,26 +175,38 @@ def matches(base_url, match_url, tourney_id):
     player2_seed_xpath = XPath("td[contains(@class, 'day-table-seed')][2]/span/text()")
     
     result_url_xpath = XPath("td[contains(@class, 'day-table-score')]/a/@href")
-    
+
     output = []
     for match in matches_xpath(your_tree):
         player1_name = player1_name_xpath(match)[0]
         player1_url = player1_url_xpath(match)[0]
-        player1_id = player1_url.split('/')[3]
+        player1_url = player1_url[:-9]
+        player1_id = player1_url.split('/')[3] + ":" + player1_url.split('/')[4]
         seed1 = regex_strip_array(player1_seed_xpath(match))
         if len(seed1) > 0:
             player1_seed = seed1[0].replace('(', '').replace(')', '')
         else:
             player1_seed = ""
             
-        player2_name = player2_name_xpath(match)[0]
-        player2_url = player2_url_xpath(match)[0]       
-        player2_id = player2_url.split('/')[3]
-        seed2 = regex_strip_array(player2_seed_xpath(match))
-        if len(seed2) > 0:
-            player2_seed = seed2[0].replace('(', '').replace(')', '')
+        player2_name_array = player2_name_xpath(match)
+        if len(player2_name_array)>0:
+            player2_name = player2_name_array[0]
+            player2_url = player2_url_xpath(match)[0]       
+            player2_url = player2_url[:-9]
+            player2_id = player2_url.split('/')[3] +  ":" + player2_url.split('/')[4]
+            seed2 = regex_strip_array(player2_seed_xpath(match))
+            if len(seed2) > 0:
+                player2_seed = seed2[0].replace('(', '').replace(')', '')
+            else:
+                player2_seed = ""
+            
         else:
-            player2_seed = ""
+            player2_name = ""
+            player2_url = ""
+            player2_id = ""
+            player2_seed = 999
+            print("t id" + tourney_url)
+
             
         result_url = ""
         result = result_url_xpath(match)
@@ -204,31 +223,233 @@ def matches(base_url, match_url, tourney_id):
 
     return output
 
-def players(base_url, player_urls):
+def getPlayers(base_url, player_urls):
     
+    output = [[]] * len(player_urls)
+    counter = 0
     for player_url in player_urls:
+        before_time =time.time()
         winloss_tree = html_parse_tree(base_url + player_url + "/fedex-atp-win-loss/")
-        good_html = etree.tostring(winloss_tree, pretty_print=True).strip()
-        winloss_tree = etree.fromstring(good_html)       
+        good_html = etree.tostring(winloss_tree, encoding="unicode", pretty_print=True).strip()
+        winloss_tree = etree.fromstring(good_html.replace("v-bind:",""))       
         
-        summary_xpath = XPath("//div[contains(@class, 'inner-wrap')]/table/tr[1]")
-        age_xpath = XPath("//td/div[contains(@class, 'wrap')]/div[contains(@class, 'table-big-value')]/text()")
+        # First row of summary data
+        summary1_xpath = XPath("//div[contains(@class, 'inner-wrap')]/table/tr[1]")
+        age_xpath = XPath("//td[1]/div[contains(@class, 'wrap')]/div[contains(@class, 'table-big-value')]/text()")
         dob_xpath = XPath("//span[contains(@class, 'table-birthday-wrapper')]/span[contains(@class, 'table-birthday')]/text()")
         kgs_xpath = XPath("//span[contains(@class, 'table-weight-kg-wrapper')]/text()")
         cms_xpath = XPath("//span[contains(@class, 'table-height-cm-wrapper')]/text()")
+        turned_pro_xpath = XPath("//td[2]/div[contains(@class, 'wrap')]/div[contains(@class, 'table-big-value')]/text()")
         
-        for summary in summary_xpath(winloss_tree):
-            age = regex_strip_array(age_xpath(summary))[0]
-            print("AGE:" + age)
-            dob = regex_strip_array(dob_xpath(summary))[0].replace('(', '').replace(')', '')
-            print("DOB:" + dob)
-            kgs = regex_strip_array(kgs_xpath(summary))[0].replace('(', '').replace(')', '')
-            print("Kgs:" + kgs)
-            cms = regex_strip_array(cms_xpath(summary))[0].replace('(', '').replace(')', '')
-            print("Cms:" + cms)
+        player_id = player_url.split('/')[3] +  ":" + player_url.split('/')[4]
+        for summary in summary1_xpath(winloss_tree):
+            age_array = regex_strip_array(age_xpath(summary))
+            if len(age_array) > 0:
+                age = age_array[0]
+            else:
+                age = 999
+                continue
+                
+            dob_array = regex_strip_array(dob_xpath(summary))
+            if len(dob_array) > 0:
+                dob = dob_array[0].replace('(', '').replace(')', '')
+            else:
+                dob = "1900.01.01"
+                
+            kgs_array = regex_strip_array(kgs_xpath(summary))
+            if len(kgs_array) > 0:
+                kgs = kgs_array[0].replace('(', '').replace(')', '')
+            else:
+                kgs = 999
+            
+            cms_array = regex_strip_array(cms_xpath(summary))
+            if len(cms_array) > 0:
+                cms = cms_array[0].replace('(', '').replace(')', '')
+            else:
+                cms = 999
+                
+            turned_pro_array = regex_strip_array(turned_pro_xpath(summary))
+            if len(turned_pro_array) > 0:
+                turned_pro = turned_pro_array[0]
+            else:
+                turned_pro = 1900
+        
+        if age == 999:
+            continue
+            
+        # Second row of summary data
+        summary2_xpath = XPath("//div[contains(@class, 'inner-wrap')]/table/tr[2]")
+        plays_xpath = XPath("//td[3]/div[contains(@class, 'wrap')]/div[contains(@class, 'table-value')]/text()")
+        
+        for summary in summary2_xpath(winloss_tree):
+            plays_array = regex_strip_array(plays_xpath(summary))
+            hand, backhand = ("", "")
+            if len(plays_array) > 0:
+
+                plays = plays_array[0]
+                play_array = regex_strip_array(plays.split(','))
+                if len(play_array) > 0:
+                    hand = play_array[0]
+                    if len(play_array) > 1:
+                        backhand = play_array[1]
+            
+        # Win/Loss match record
+        winloss1_xpath = XPath("//div[contains(@id, 'matchRecordTableContainer')]/table[1]")
+        total_ytd_xpath = XPath("//table[1]/tbody/tr[1]/td[2]/table/tbody/tr[1]/td/text()")
+        total_all_xpath = XPath("//table[1]/tbody/tr[1]/td[4]/table/tbody/tr[1]/td/text()")
+        
+        total_ytd_win = 0
+        total_ytd_loss = 0
+        total_all_win = 0
+        total_all_loss = 0
+        for winloss in winloss1_xpath(winloss_tree):
+            total_ytd = regex_strip_array(total_ytd_xpath(winloss))
+            total_ytd_win = total_ytd[0]
+            total_ytd_loss = total_ytd[2]
+
+            total_all = regex_strip_array(total_all_xpath(winloss))
+            total_all_win = total_all[0]
+            total_all_loss = total_all[2]
+
+        winloss2_xpath = XPath("//div[contains(@id, 'matchRecordTableContainer')]/table[3]")
+        clay_ytd_xpath = XPath("//table[3]/tbody/tr[1]/td[2]/table/tbody/tr[1]/td/text()")
+        clay_all_xpath = XPath("//table[3]/tbody/tr[1]/td[4]/table/tbody/tr[1]/td/text()")
+        grass_ytd_xpath = XPath("//table[3]/tbody/tr[2]/td[2]/table/tbody/tr[1]/td/text()")
+        grass_all_xpath = XPath("//table[3]/tbody/tr[2]/td[4]/table/tbody/tr[1]/td/text()")
+        hard_ytd_xpath = XPath("//table[3]/tbody/tr[3]/td[2]/table/tbody/tr[1]/td/text()")
+        hard_all_xpath = XPath("//table[3]/tbody/tr[3]/td[4]/table/tbody/tr[1]/td/text()")
+        carpet_ytd_xpath = XPath("//table[3]/tbody/tr[4]/td[2]/table/tbody/tr[1]/td/text()")
+        carpet_all_xpath = XPath("//table[3]/tbody/tr[4]/td[4]/table/tbody/tr[1]/td/text()")
+        indoor_ytd_xpath = XPath("//table[3]/tbody/tr[5]/td[2]/table/tbody/tr[1]/td/text()")
+        indoor_all_xpath = XPath("//table[3]/tbody/tr[5]/td[4]/table/tbody/tr[1]/td/text()")
+        outdoor_ytd_xpath = XPath("//table[3]/tbody/tr[6]/td[2]/table/tbody/tr[1]/td/text()")
+        outdoor_all_xpath = XPath("//table[3]/tbody/tr[6]/td[4]/table/tbody/tr[1]/td/text()")
+
+        clay_ytd_win = 0
+        clay_ytd_loss = 0
+        clay_all_win = 0
+        clay_all_loss = 0
+        grass_ytd_win = 0
+        grass_ytd_loss = 0
+        grass_all_win = 0
+        grass_all_loss = 0
+        hard_ytd_win = 0
+        hard_ytd_loss = 0
+        hard_all_win = 0
+        hard_all_loss = 0
+        carpet_ytd_win = 0
+        carpet_ytd_loss = 0
+        carpet_all_win = 0
+        carpet_all_loss = 0
+        indoor_ytd_win = 0
+        indoor_ytd_loss = 0
+        indoor_all_win = 0
+        indoor_all_loss = 0
+        outdoor_ytd_win = 0
+        outdoor_ytd_loss = 0
+        outdoor_all_win = 0
+        outdoor_all_loss = 0
+        for winloss in winloss2_xpath(winloss_tree):
+            clay_ytd = regex_strip_array(clay_ytd_xpath(winloss))
+            clay_ytd_win = clay_ytd[0]
+            clay_ytd_loss = clay_ytd[2]
+
+            clay_all = regex_strip_array(clay_all_xpath(winloss))
+            clay_all_win = clay_all[0]
+            clay_all_loss = clay_all[2]
+
+            grass_ytd = regex_strip_array(grass_ytd_xpath(winloss))
+            grass_ytd_win = grass_ytd[0]
+            grass_ytd_loss = grass_ytd[2]
+
+            grass_all = regex_strip_array(grass_all_xpath(winloss))
+            grass_all_win = grass_all[0]
+            grass_all_loss = grass_all[2]
+
+            hard_ytd = regex_strip_array(hard_ytd_xpath(winloss))
+            hard_ytd_win = hard_ytd[0]
+            hard_ytd_loss = hard_ytd[2]
+
+            hard_all = regex_strip_array(hard_all_xpath(winloss))
+            hard_all_win = hard_all[0]
+            hard_all_loss = hard_all[2]
+
+            carpet_ytd = regex_strip_array(carpet_ytd_xpath(winloss))
+            carpet_ytd_win = carpet_ytd[0]
+            carpet_ytd_loss = carpet_ytd[2]
+
+            carpet_all = regex_strip_array(carpet_all_xpath(winloss))
+            carpet_all_win = carpet_all[0]
+            carpet_all_loss = carpet_all[2]
+
+            indoor_ytd = regex_strip_array(indoor_ytd_xpath(winloss))
+            indoor_ytd_win = indoor_ytd[0]
+            indoor_ytd_loss = indoor_ytd[2]
+
+            indoor_all = regex_strip_array(indoor_all_xpath(winloss))
+            indoor_all_win = indoor_all[0]
+            indoor_all_loss = indoor_all[2]
+
+            outdoor_ytd = regex_strip_array(outdoor_ytd_xpath(winloss))
+            outdoor_ytd_win = outdoor_ytd[0]
+            outdoor_ytd_loss = outdoor_ytd[2]
+
+            outdoor_all = regex_strip_array(outdoor_all_xpath(winloss))
+            outdoor_all_win = outdoor_all[0]
+            outdoor_all_loss = outdoor_all[2]
+
+#        newoutput = np.array([[player_id, age, dob, kgs, cms, turned_pro, hand, backhand, total_ytd_win, total_ytd_loss, total_all_win, total_all_loss,
+#                               clay_ytd_win, clay_ytd_loss, clay_all_win, clay_all_loss, grass_ytd_win, grass_ytd_loss, grass_all_win, grass_all_loss,
+#                               hard_ytd_win, hard_ytd_loss, hard_all_win, hard_all_loss, carpet_ytd_win, carpet_ytd_loss, carpet_all_win, carpet_all_loss,
+#                               indoor_ytd_win, indoor_ytd_loss, indoor_all_win, indoor_all_loss, outdoor_ytd_win, outdoor_ytd_loss, outdoor_all_win, outdoor_all_loss]])
+#        if len(output) == 0:
+#            output = newoutput
+#        else:
+#            output = np.concatenate((output, newoutput))
+
+        newoutput = [player_id, age, dob, kgs, cms, turned_pro, hand, backhand, total_ytd_win, total_ytd_loss, total_all_win, total_all_loss,
+                               clay_ytd_win, clay_ytd_loss, clay_all_win, clay_all_loss, grass_ytd_win, grass_ytd_loss, grass_all_win, grass_all_loss,
+                               hard_ytd_win, hard_ytd_loss, hard_all_win, hard_all_loss, carpet_ytd_win, carpet_ytd_loss, carpet_all_win, carpet_all_loss,
+                               indoor_ytd_win, indoor_ytd_loss, indoor_all_win, indoor_all_loss, outdoor_ytd_win, outdoor_ytd_loss, outdoor_all_win, outdoor_all_loss]
+        #print("latest: " + str(newoutput))
+        output[counter] = newoutput
+        #print("output: " + str(output[counter]))
+        counter += 1
+        #print("counter: " + str(counter))
+        after_time = time.time()
+        #print("Before" + str(before_time))
+        #print("After" + str(after_time))
+        #print("Elapsed " + str(after_time-before_time) + " " + player_id)
+    #print("final: " + str(output))
+    return output[:counter]
+
+def getRankings(base_url, player_urls):
     
     output = []
+    for player_url in player_urls:
+        rankings_tree = html_parse_tree(base_url + player_url + "/rankings-history/")
+        good_html = etree.tostring(rankings_tree, encoding="unicode", pretty_print=True).strip()
+        rankings_tree = etree.fromstring(good_html.replace("v-bind:",""))       
+        
+        # First row of summary data
+        ranking_xpath = XPath("//div[contains(@class, 'player-rank-history')]/div[contains(@class, 'mega-table-wrapper')]/table[contains(@class, 'mega-table')]/tbody")
+        date_xpath = XPath("//tr/td[1]/text()")
+        rank_xpath = XPath("//tr/td[2]/text()")
+        
+        player_id = player_url.split('/')[3]
+        for rankings in ranking_xpath(rankings_tree):
+            date_array = regex_strip_array(date_xpath(rankings))[4:] # for some reason there are 4 mystery entries that need removing
+            rank_array = regex_strip_array(rank_xpath(rankings))[4:] # for some reason there are 4 mystery entries that need removing
+            
+        player_array = [player_id] * len(date_array)
+            
+        newoutput = np.column_stack([player_array, date_array, rank_array])
 
+        if len(output) == 0:
+            output = newoutput
+        else:
+            output = np.concatenate((output, newoutput))
+        
     return output
 
 def scrape_tourney(tourney_url_suffix):
