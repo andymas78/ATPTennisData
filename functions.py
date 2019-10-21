@@ -74,6 +74,51 @@ def getTournaments(year):
 
     # HTML tree
     year_tree = html_parse_tree(year_url)
+    good_html = etree.tostring(year_tree, encoding="unicode", pretty_print=True).strip()
+
+    your_tree = etree.fromstring(good_html.replace("v-bind:",""))
+    tourney_xpath = XPath("//table[contains(@class, 'results-archive-table')]/tbody/tr[contains(@class, 'tourney-result')]") 
+
+    tourney_title_xpath = XPath("td[contains(@class, 'title-content')]/span[contains(@class, 'tourney-title')]/text()")
+    tourney_dates_xpath = XPath("td[contains(@class, 'title-content')]/span[contains(@class, 'tourney-dates')]/text()")
+    tourney_condi_xpath = XPath("td[contains(@class, 'tourney-details')]/div/div[contains(., 'Outdoor') or contains(., 'Indoor')]/text()")
+    tourney_surfc_xpath = XPath("td[contains(@class, 'tourney-details')]/div/div[contains(., 'Outdoor') or contains(., 'Indoor')]/span/text()")
+    tourney_fincl_xpath = XPath("td[contains(@class, 'fin-commit')]")
+    tourney_fincl_xpath2 = XPath("div/div/span/text()")
+    tourney_reslt_xpath = XPath("td[contains(@class, 'tourney-details')]/a/@href")
+    
+    output = []
+    tourney_order = 0
+    for tourney in tourney_xpath(your_tree):   
+        tourney_order += 1
+        tourney_title = tourney_title_xpath(tourney)[0].strip()
+        tourney_dates = tourney_dates_xpath(tourney)[0].strip()
+        tourney_condi = tourney_condi_xpath(tourney)[0].strip()
+        tourney_surfc = tourney_surfc_xpath(tourney)[0].strip()
+        tourney_fincl_array = tourney_fincl_xpath2(tourney_fincl_xpath(tourney)[0])
+        if len(tourney_fincl_array) > 0:
+            tourney_fincl = tourney_fincl_array[0].strip()
+        else:
+            tourney_fincl = ""
+        tourney_reslt = tourney_reslt_xpath(tourney)[0].strip()
+        
+        newoutput = np.array([[year, tourney_order, tourney_title, tourney_dates, tourney_condi, tourney_surfc, tourney_fincl, tourney_reslt]])
+        
+        if len(output) == 0:
+            output = newoutput
+        else:
+            output = np.concatenate((output, newoutput))
+                
+    return output
+        
+# keep for reference only
+def getTournaments2(year):
+    # Setup
+    year_url = "http://www.atpworldtour.com/en/scores/results-archive?year=" + year
+    url_prefix = "http://www.atpworldtour.com"
+
+    # HTML tree
+    year_tree = html_parse_tree(year_url)
 
     # XPaths
     tourney_title_xpath = "//span[contains(@class, 'tourney-title')]/text()"
@@ -102,10 +147,17 @@ def getTournaments(year):
     tourney_surface_parsed = xpath_parse(year_tree, tourney_surface_xpath)
     tourney_surface_cleaned = regex_strip_array(tourney_surface_parsed)
 
-    tourney_fin_commit_xpath = "//td[contains(@class, 'fin-commit')]/div/div/span/text()"
+    #tourney_fin_commit_xpath = "//td[contains(@class, 'fin-commit')]/div/div/span/text()"
+    tourney_fin_commit_xpath = "//td[contains(@class, 'fin-commit')]//text()"
     tourney_fin_commit_parsed = xpath_parse(year_tree, tourney_fin_commit_xpath)
     tourney_fin_commit_cleaned = regex_strip_array(tourney_fin_commit_parsed)    
 
+    tourney_fin_commit2_xpath = "//td[contains(@class, 'fin-commit')]"
+    tourney_fin_commit2_parsed = xpath_parse(year_tree, tourney_fin_commit2_xpath)
+    # tourney_fin_commit2_cleaned = regex_strip_array(tourney_fin_commit2_parsed)    
+    
+    print(tourney_fin_commit2_parsed)
+    
     output = []
     for i in range(0, tourney_count):
         tourney_order = i + 1
@@ -120,12 +172,16 @@ def getTournaments(year):
         except Exception:
             tourney_conditions = ''
             tourney_surface = ''
-
+        
+        
+        
+        print(tourney_name + " " + str(i))
         if len(tourney_fin_commit_cleaned[i]) > 0:
             tourney_fin_commit = tourney_fin_commit_cleaned[i]
         else:
             tourney_fin_commit = ''
-
+        print(tourney_fin_commit)
+        
         # Tourney URL's
         tourney_details_url_xpath = "//tr[contains(@class, 'tourney-result')][" + str(i + 1) + "]/td[8]/a/@href"
         tourney_details_url_parsed = xpath_parse(year_tree, tourney_details_url_xpath)
@@ -145,7 +201,7 @@ def getTournaments(year):
         
         # Store data
         if tourney_url_suffix != '':
-            newoutput = np.array([[year, tourney_order, tourney_name, tourney_dates, tourney_conditions, tourney_surface, tourney_url_suffix]])
+            newoutput = np.array([[year, tourney_order, tourney_name, tourney_dates, tourney_conditions, tourney_surface, tourney_fin_commit, tourney_url_suffix]])
 
             if len(output) == 0:
                 output = newoutput
