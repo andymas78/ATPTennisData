@@ -100,14 +100,18 @@ def getTournaments(year):
             tourney_fincl = tourney_fincl_array[0].strip()
         else:
             tourney_fincl = ""
-        tourney_reslt = tourney_reslt_xpath(tourney)[0].strip()
         
-        newoutput = np.array([[year, tourney_order, tourney_title, tourney_dates, tourney_condi, tourney_surfc, tourney_fincl, tourney_reslt]])
+        tournament_result = tourney_reslt_xpath(tourney)
         
-        if len(output) == 0:
-            output = newoutput
-        else:
-            output = np.concatenate((output, newoutput))
+        if (len(tournament_result) > 0):
+            tourney_reslt = tournament_result[0].strip()
+        
+            newoutput = np.array([[year, tourney_order, tourney_title, tourney_dates, tourney_condi, tourney_surfc, tourney_fincl, tourney_reslt]])
+        
+            if len(output) == 0:
+                output = newoutput
+            else:
+                output = np.concatenate((output, newoutput))
                 
     return output
         
